@@ -1,0 +1,137 @@
+{
+    "metadata": {
+        "src_tag": "palm_0424",
+        "url": "DOI:10.1021/jasms.4c00035",
+        "reference": "EH Palm, J Engelhardt, S Tshepelevitsh, J Weiss, A Kruve (2024) J Am Soc Mass Spectrom DOI:10.1021/jasms.4c00035",
+        "ccs_type": "TW",
+        "ccs_method": "calibrated with in-house mix"
+    },
+    "data": [
+        {
+            "name": "2-OH-CB77",
+            "adduct": "[M-H]-",
+            "smi": "OC1=C(Cl)C(Cl)=CC=C1C1=CC=C(Cl)C(Cl)=C1",
+            "mz": 304.909450532,
+            "ccs": 158.5173
+        },
+        {
+            "name": "4,2'-diOH-CB107",
+            "adduct": "[M-H]-",
+            "smi": "OC1=C(Cl)C(Cl)=C(C=C1Cl)C1=CC=C(Cl)C(Cl)=C1O",
+            "mz": 354.8653928,
+            "ccs": 168.091
+        },
+        {
+            "name": "4,3'-diOH-CB107",
+            "adduct": "[M-H]-",
+            "smi": "OC1=C(Cl)C(Cl)=CC(=C1)C1=C(Cl)C(Cl)=C(O)C(Cl)=C1",
+            "mz": 354.8653928,
+            "ccs": 168.6433
+        },
+        {
+            "name": "4,3'-diOH-CB90",
+            "adduct": "[M-H]-",
+            "smi": "OC1=C(Cl)C(=CC=C1Cl)C1=C(Cl)C(Cl)=C(O)C(Cl)=C1",
+            "mz": 354.8653928,
+            "ccs": 167.999
+        },
+        {
+            "name": "4,4'-diOH-CB111",
+            "adduct": "[M-H]-",
+            "smi": "OC1=C(Cl)C=C(C=C1Cl)C1=C(Cl)C(Cl)=C(O)C(Cl)=C1",
+            "mz": 354.8653928,
+            "ccs": 169.1957
+        },
+        {
+            "name": "4,4'-diOH-CB80",
+            "adduct": "[M-H]-",
+            "smi": "OC1=C(Cl)C=C(C=C1Cl)C1=CC(Cl)=C(O)C(Cl)=C1",
+            "mz": 320.90436515199997,
+            "ccs": 163.8565
+        },
+        {
+            "name": "4,4'-diOH-CB83",
+            "adduct": "[M-H]-",
+            "smi": "OC1=CC=C(C2=CC(Cl)=C(O)C(Cl)=C2)C(Cl)=C1Cl",
+            "mz": 320.90436515199997,
+            "ccs": 167.1705
+        },
+        {
+            "name": "4'-OH-CB120",
+            "adduct": "[M-H]-",
+            "smi": "OC1=C(Cl)C=C(C=C1Cl)C1=CC(Cl)=C(Cl)C=C1Cl",
+            "mz": 338.87047818,
+            "ccs": 166.6181
+        },
+        {
+            "name": "4'-OH-CB127",
+            "adduct": "[M-H]-",
+            "smi": "OC1=C(Cl)C=C(C=C1Cl)C1=CC(Cl)=C(Cl)C(Cl)=C1",
+            "mz": 338.87047818,
+            "ccs": 165.7896
+        },
+        {
+            "name": "4'-OH-CB159",
+            "adduct": "[M-H]-",
+            "smi": "OC1=C(Cl)C=C(C=C1Cl)C1=C(Cl)C(Cl)=C(Cl)C(Cl)=C1",
+            "mz": 372.831505828,
+            "ccs": 170.3924
+        },
+        {
+            "name": "4'-OH-CB30",
+            "adduct": "[M-H]-",
+            "smi": "OC1=CC=C(C=C1)C1=C(Cl)C=C(Cl)C=C1Cl",
+            "mz": 270.94842288399997,
+            "ccs": 155.8477
+        },
+        {
+            "name": "4'-OH-CB35",
+            "adduct": "[M-H]-",
+            "smi": "OC1=C(Cl)C=C(C=C1)C1=CC=C(Cl)C(Cl)=C1",
+            "mz": 270.94842288399997,
+            "ccs": 155.4795
+        },
+        {
+            "name": "4'-OH-CB79",
+            "adduct": "[M-H]-",
+            "smi": "OC1=C(Cl)C=C(C=C1Cl)C1=CC=C(Cl)C(Cl)=C1",
+            "mz": 304.909450532,
+            "ccs": 160.3584
+        },
+        {
+            "name": "4-OH-CB107",
+            "adduct": "[M-H]-",
+            "smi": "OC1=C(Cl)C(Cl)=C(C=C1Cl)C1=CC=C(Cl)C(Cl)=C1",
+            "mz": 338.87047818,
+            "ccs": 165.6976
+        },
+        {
+            "name": "4-OH-CB108",
+            "adduct": "[M-H]-",
+            "smi": "OC1=C(Cl)C=C(C=C1Cl)C1=CC=C(Cl)C(Cl)=C1Cl",
+            "mz": 338.87047818,
+            "ccs": 165.0532
+        },
+        {
+            "name": "4-OH-CB130",
+            "adduct": "[M-H]-",
+            "smi": "OC1=C(Cl)C(Cl)=C(C=C1Cl)C1=CC=C(Cl)C(Cl)=C1Cl",
+            "mz": 372.831505828,
+            "ccs": 170.2083
+        },
+        {
+            "name": "4-OH-CB172",
+            "adduct": "[M-H]-",
+            "smi": "OC1=C(Cl)C(Cl)=C(C=C1Cl)C1=CC(Cl)=C(Cl)C(Cl)=C1Cl",
+            "mz": 406.792533476,
+            "ccs": 175.5474
+        },
+        {
+            "name": "4-OH-CB193",
+            "adduct": "[M-H]-",
+            "smi": "OC1=C(Cl)C(Cl)=C(C2=CC(Cl)=C(Cl)C(Cl)=C2)C(Cl)=C1Cl",
+            "mz": 406.792533476,
+            "ccs": 175.3633
+        }
+    ]
+}
