@@ -34,23 +34,38 @@ def remove_invalid_smiles(db_path, clean_db_path):
     or if the SMILES is null/None.
     """
 
+    # Initialize clean database with schema if it doesn't exist
+    if not os.path.exists(clean_db_path):
+        print(f"Creating new clean database: {clean_db_path}")
+        create_clean_db(clean_db_path)
+
     # Read data from the original database into a pandas DataFrame
     conn = sqlite3.connect(db_path)
-    df = pd.read_sql_query(
-        "SELECT g_id, name, adduct, mass, z, mz, ccs, smi, chem_class_label, src_tag, ccs_type, ccs_method FROM master",
+    df_master = pd.read_sql_query(
+        "SELECT * FROM master",
         conn
     )
+    df_master_col = df_master.columns.tolist()
+
+    df_mqn = pd.read_sql_query(
+        "SELECT * FROM mqns",
+        conn
+    )
+    df_mqn_col = df_mqn.columns.tolist()
+
+    # Merge DataFrames by g_id (left join to keep all master entries)
+    combined_df = pd.merge(df_master, df_mqn, on='g_id', how='left')
+
+    combined_df = combined_df[combined_df['smi'].notnull()] #only keep entries with SMILE string
+    combined_df['smi'] = combined_df['smi'].apply(lambda x: x.split('.'))
+    combined_df = combined_df[combined_df['smi'].apply(lambda x: len(x) == 1)] #keep only entries with one SMILE string
+    combined_df['smi'] = combined_df['smi'].apply(lambda x: x[0])  # Convert list back to string
+
+    #push the combined_df to clean on their respective tables
+    combined_df[df_master_col].to_sql('master', sqlite3.connect(clean_db_path), if_exists='append', index=False)
+    combined_df[df_mqn_col].to_sql('mqns', sqlite3.connect(clean_db_path), if_exists='append', index=False)
+
     conn.close()
-
-    df = df[df['smi'].notnull()] #only keep entries with SMILE string
-    df['smi'] = df['smi'].apply(lambda x: x.split('.'))
-    df = df[df['smi'].apply(lambda x: len(x) == 1)] #keep only entries with one SMILE string
-    df['smi'] = df['smi'].apply(lambda x: x[0])  # Convert list back to string
-
-    clean_conn = sqlite3.connect(clean_db_path)
-    df.to_sql('master', clean_conn, if_exists='replace', index=False)
-    clean_conn.commit()
-    clean_conn.close()
 
 def calculate_rsd(values):
     """
@@ -126,7 +141,7 @@ def process_entries(entries):
     Returns
     -------
     ``list``
-        processed CCS values for the entries
+        list of processed entry dictionaries with updated CCS values
     """
     ccs_values = [e["ccs"] for e in entries]
     rsd = calculate_rsd(ccs_values)
@@ -134,31 +149,31 @@ def process_entries(entries):
     dt_entries = [e for e in entries if e["ccs_type"] == "DT"]
     dt_ccs_entries = [e["ccs"] for e in dt_entries]
 
-    # Ensure that we always return a list of values with the same length as the original entries list
     # logic for handling duplicate entries (exactly two entries in group)
-
     if len(ccs_values) == 2:
-        
         print("processing two entries")
         if rsd <= 1:
             print("two entries: RSD less than 1")
             # if RSD < 1%, simply average the values
             averaged_value = round(np.mean(ccs_values), 4)
-            return [averaged_value] 
+            # Return single entry with averaged CCS
+            result_entry = entries[0].copy()
+            result_entry["ccs"] = averaged_value
+            return [result_entry]
         
         # if RSD > 1%, process based on ccs_type
         else:
             print("two entries: RSD more than one continue with more")
             # Handling cases with exactly two entries and DT considerations
             if len(dt_entries) == 1:
-                dt_ccs = [e["ccs"] for e in dt_entries] # If exactly one entry is DT and RSD > 1%, keep only the DT measurement
-                return dt_ccs
+                # If exactly one entry is DT and RSD > 1%, keep only the DT measurement
+                return dt_entries
             elif len(dt_entries) == 2:
                 # If both are DT and RSD > 1%, keep both values
-                return [ccs_values]  # Return the original list (already the correct length)
+                return entries
             else:
                 # If no entries are DT and RSD > 1%, keep both values
-                return [ccs_values]  # Return the original list
+                return entries
         
     elif len(ccs_values) > 2:
         print("processing more than two entries")
@@ -166,22 +181,39 @@ def process_entries(entries):
         if rsd <= 1:  # If RSD < 1%, average all CCS values
             print("more than two entries: RSD less than 1")
             averaged_value = round(np.mean(ccs_values), 4)
-            return [averaged_value] 
+            # Return single entry with averaged CCS
+            result_entry = entries[0].copy()
+            result_entry["ccs"] = averaged_value
+            return [result_entry]
     
         else:  # If RSD > 1%, attempt to remove outliers and recheck RSD
             print("more than two entries: RSD more than one continue with more")
             if len(dt_entries) >= 1:
                 print("processing DT entries ONLY")
-                new_dt_average = remove_outliers_and_average(dt_ccs_entries)
-                return new_dt_average
+                processed_ccs = remove_outliers_and_average(dt_ccs_entries)
+                # Update DT entries with processed CCS values
+                result_entries = []
+                for i, dt_entry in enumerate(dt_entries):
+                    if i < len(processed_ccs):
+                        updated_entry = dt_entry.copy()
+                        updated_entry["ccs"] = processed_ccs[i]
+                        result_entries.append(updated_entry)
+                return result_entries
             else:
                 print("processing entries with no DT")
-                new_value = remove_outliers_and_average(ccs_values)
-                return new_value
+                processed_ccs = remove_outliers_and_average(ccs_values)
+                # Update entries with processed CCS values
+                result_entries = []
+                for i, entry in enumerate(entries):
+                    if i < len(processed_ccs):
+                        updated_entry = entry.copy()
+                        updated_entry["ccs"] = processed_ccs[i]
+                        result_entries.append(updated_entry)
+                return result_entries
             
     else:
-        print("processing one entries directly return")
-        return [ccs_values]  # Already a list
+        print("processing one entry directly return")
+        return entries  # Return the single entry as-is
 
 
 def create_clean_db(clean_db_path):
@@ -213,7 +245,7 @@ def create_clean_db(clean_db_path):
     con.close()
 
 
-def clean_database(db_path):
+def clean_database(db_path, clean_db_path):
     """
     Cleans and prepares a new database using the schema files
 
@@ -231,98 +263,108 @@ def clean_database(db_path):
     if db_path is None or db_path.strip() == "":
         raise ValueError("db_path is not provided or is empty.")
 
+    # Initialize clean database with schema if it doesn't exist
+    if not os.path.exists(clean_db_path):
+        print(f"Creating new clean database: {clean_db_path}")
+        create_clean_db(clean_db_path)
+
     # Read data from the original database into a pandas DataFrame
     conn = sqlite3.connect(db_path)
     df = pd.read_sql_query(
         "SELECT g_id, name, adduct, mass, z, mz, ccs, smi, chem_class_label, src_tag, ccs_type, ccs_method FROM master",
         conn
     )
-    conn.close()
+    df_master_col = df.columns.tolist()
+
+    df_mqn = pd.read_sql_query(
+        "SELECT * FROM mqns",
+        conn
+    )
+    df_mqn_col = df_mqn.columns.tolist()
+
+    df = pd.merge(df, df_mqn, on='g_id', how='left')
     
     # Normalize the name to lowercase and round mz for grouping
     df['name'] = df['name'].str.lower()
     df['rounded_mz'] = df['mz'].round(0)
     df['ccs'] = df['ccs'].astype(int)
     
-
     # Group by name, adduct, and rounded mz
     grouped = df.groupby(['name', 'adduct', 'rounded_mz'])
     
-    clean_conn = sqlite3.connect(db_path, timeout=30)
-    entry_count = 0  # Initialize entry counter
+    # Open connection once for the whole database
+    clean_conn = sqlite3.connect(clean_db_path)
+
+    # Initialize entry counter
+    entry_count = 0  
 
     for group_key, group_df in grouped:
-        
         print(f"🔴 Entries processed: {entry_count}/{len(grouped)} 🔴 ")            
 
         if len(group_df) > 1:
             print(f"✅ Processing group with key: {group_key} {group_df} and size: {len(group_df)}")
             
             print("converting into dictonary")
-            # Convert the group DataFrame to a list of dictionaries
             group_entries = group_df.to_dict(orient='records')
             
-            print("processing entries")
-            # Process entries using the provided function 
-            # returned either a single value of list of values
-            processed_ccs = process_entries(group_entries)    
-            print(f"🟠 Processed CCS: {processed_ccs} 🟠")
-
-            for i, ccs in enumerate(processed_ccs):
-                entry = {
-                    'g_id' : _gen_id(group_entries[i]["name"], group_entries[i]["adduct"], ccs, group_entries[i]["ccs_type"], ""),
-                    "name": group_entries[i]["name"],  # Access the i-th dictionary's "name"
-                    "adduct": group_entries[i]["adduct"],
-                    "mass": group_entries[i]["mass"],
-                    "z": group_entries[i]["z"],
-                    "mz": group_entries[i]["mz"],
-                    "ccs": ccs,  # Use the i-th processed CCS value
-                    "smi": group_entries[i]["smi"],
-                    'chem_class_label': group_entries[i]["chem_class_label"],
-                    'src_tag': group_entries[i]["src_tag"],
-                    "ccs_type": group_entries[i]["ccs_type"],
-                    "ccs_method": group_entries[i]["ccs_method"]
-                }
-
-                entry_df = pd.DataFrame([entry])
+            processed_entries = process_entries(group_entries)    
             
+            print(f"🟠 Processed {len(processed_entries)} entries 🟠")
+            
+            for processed_entry in processed_entries:
                 try:
-                    if os.path.exists(db_path):
-                        os.remove(db_path)
-
-                    create_clean_db(db_path)
-                    clean_conn = sqlite3.connect(db_path)
-
-                    entry_df.to_sql('master', clean_conn, if_exists='append', index=False)
+                    # Create DataFrames by selecting only the columns that exist in each table
+                    master_data = {col: processed_entry[col] for col in df_master_col if col in processed_entry}
+                    mqn_data = {col: processed_entry[col] for col in df_mqn_col if col in processed_entry}
                     
+                    entry_master = pd.DataFrame([master_data])
+                    entry_mqn = pd.DataFrame([mqn_data])
+
+                    # Insert the entry into the master table (append mode)
+                    entry_master.to_sql('master', clean_conn, if_exists='append', index=False)
+                    entry_mqn.to_sql('mqns', clean_conn, if_exists='append', index=False)
+
                     print(f"🟠 Inserted processed group with key: {group_key}")
                     entry_count += 1
-                    clean_conn.commit()
-                    clean_conn.close()
                 except Exception as e:
                     print(f"❌ Error processing group with key: {group_key}. Error: {e}")
+                    print(f"Debug - processed_entry keys: {list(processed_entry.keys()) if isinstance(processed_entry, dict) else 'Not a dict'}")
+                    print(f"Debug - master_data: {master_data if 'master_data' in locals() else 'Not created'}")
+                    print(f"Debug - mqn_data: {mqn_data if 'mqn_data' in locals() else 'Not created'}")
                     continue
-        
+
         elif len(group_df) == 1:
             try:
-                if os.path.exists(db_path):
-                    os.remove(db_path)
-
-                create_clean_db(db_path)
-                clean_conn = sqlite3.connect(db_path)
+                # Prepare entry for a single-row group, drop 'rounded_mz'
+                single_entry_df = group_df.drop(columns=['rounded_mz'])
+                # Convert single row to dictionary
+                single_entry = single_entry_df.iloc[0].to_dict()
                 
-                # Insert the processed group into the database using pandas
-                group_df.drop(columns=['rounded_mz']).to_sql('master', clean_conn, if_exists='append', index=False)
+                # Create DataFrames by selecting only the columns that exist in each table
+                master_data = {col: single_entry[col] for col in df_master_col if col in single_entry}
+                mqn_data = {col: single_entry[col] for col in df_mqn_col if col in single_entry}
+                
+                entry_master = pd.DataFrame([master_data])
+                entry_mqn = pd.DataFrame([mqn_data])
+                
+                entry_master.to_sql('master', clean_conn, if_exists='append', index=False)
+                entry_mqn.to_sql('mqns', clean_conn, if_exists='append', index=False)
+
                 entry_count += 1
-                clean_conn.commit()
-                clean_conn.close()
             except Exception as e:
                 print(f"❌ Error processing group with key: {group_key}. Error: {e}")
+                print(f"Debug - single_entry keys: {list(single_entry.keys()) if 'single_entry' in locals() and isinstance(single_entry, dict) else 'Not a dict'}")
+                print(f"Debug - master_data: {master_data if 'master_data' in locals() else 'Not created'}")
+                print(f"Debug - mqn_data: {mqn_data if 'mqn_data' in locals() else 'Not created'}")
                 continue
+
         
-        print(f"Completed processing group with key: {group_key}")
-        
-    print(f"Database cleaned and saved as {db_path}, entries added {entry_count}")
+    # Close connections after processing all groups
+    conn.close()  # Close original database connection
+    clean_conn.commit()
+    clean_conn.close()
+    
+    print(f"Database cleaned and saved as {clean_db_path}, entries added {entry_count}")
     print(f"✅ Clean DB done")
     
 
