@@ -3,6 +3,7 @@
 """
 
 import sqlite3
+import pickle
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, Optional, List
@@ -22,17 +23,22 @@ from itertools import product
 # Base class for training regression models
 # -----------------------
 class C3SDB:
-    def __init__(self, database_file: str):
+    def __init__(self, database_file: str, subset_size: int = None):
+
+        self.seed = 69 # random seed
 
         if os.path.exists(database_file):
             with sqlite3.connect(database_file) as conn:
                 self.db_master = pd.read_sql_query("SELECT * FROM master", conn)
                 self.db_mqns = pd.read_sql_query("SELECT * FROM mqns", conn)
                 self.db = pd.merge(self.db_master, self.db_mqns, on="g_id", how="left")
+                
+                if subset_size > 0 and subset_size < len(self.db):
+                    self.db = self.db.sample(n=subset_size, random_state=self.seed)
         else:
             raise FileNotFoundError(f"Database file {database_file} not found")
 
-        self.seed = 69 # random seed
+        
 
         self.X_columns: Optional[List[str]] = None #columns for features
         self.y_column: Optional[List[str]] = None #column for target
@@ -50,6 +56,9 @@ class C3SDB:
         self.validationX_df = None
         self.validationY_df = None
 
+        self.g_id_train = None
+        self.g_id_test = None
+        self.g_id_validation = None
 
         self.X_train_ss_ = None
         self.X_test_ss_ = None
@@ -60,10 +69,18 @@ class C3SDB:
             "[M+H-H2O]+", "[M+HCOO]-", "[M+CH3COO]-", "[M+Na-2H]-"
         ]
 
+        self.SScaler_ = None
+
+        # model and prediction-related state
+        self.model_ = None
+        self.last_predictions_: Optional[pd.Series] = None
+        self.prediction_column_name_: Optional[str] = None
+        self.last_true_: Optional[pd.Series] = None
+
 
     def build_features(self, feature_columns: List[str], target_column: str, use_mqns: bool = True):
         #initialize the target column
-        self.y_column = target_column
+        self.y_column = [target_column]
 
         #build the feature columns
         if use_mqns:
@@ -75,7 +92,7 @@ class C3SDB:
                 #one hot encode the adduct column
                 self.adduct_column_names = self.one_hot_encode_adduct()
                         
-            self.X_columns = feature_columns + self.adduct_column_names + self.mqn_pca_columns            
+            self.X_columns = feature_columns + self.adduct_column_names + self.mqn_pca_columns
                 
     def get_pca1_mqn_columns(self, n_components: int = 2, top_n: int = 10):
         """
@@ -171,9 +188,9 @@ class C3SDB:
 
         # perform the scaling
         self.SScaler_ = StandardScaler()
-        self.X_train_ss_ = self.SScaler_.fit_transform(self.trainX_df)
-        self.X_test_ss_ = self.SScaler_.transform(self.testX_df)
-        self.X_validation_ss_ = self.SScaler_.transform(self.validationX_df)
+        self.X_train_ss_ = self.SScaler_.fit_transform(self.trainX_df[self.X_columns])
+        self.X_test_ss_ = self.SScaler_.transform(self.testX_df[self.X_columns])
+        self.X_validation_ss_ = self.SScaler_.transform(self.validationX_df[self.X_columns])
 
     def train_test_split(self, 
                          stratify: str, 
@@ -231,8 +248,8 @@ class C3SDB:
         # initialize StratifiedShuffleSplit for train/test split
         self.SSSplit_ = StratifiedShuffleSplit(n_splits=1, test_size=test_frac, random_state=self.seed)
         
-        self.X_df = self.db[self.X_columns[0:len(self.X_columns)]]
-        self.y_df = self.db[self.y_column[0]]
+        self.X_df = self.db[self.X_columns + ['g_id']]
+        self.y_df = self.db[self.y_column + ['g_id']]
     
         # First split: separate test set from train+validation
         for train_val_index, test_index in self.SSSplit_.split(self.X_df, y_cat):
@@ -242,8 +259,8 @@ class C3SDB:
             self.testX_df = self.X_df.iloc[test_index]
             self.testY_df = self.y_df.iloc[test_index]
             
-            # Get stratification categories for train+validation set
-            train_val_cat = y_cat[train_val_index]
+            # Get stratification categories for train+validation set (use positional indexing)
+            train_val_cat = y_cat.iloc[train_val_index]
             
             # Second split: separate train and validation from train+validation set
             # Adjust validation_frac to be relative to the train+validation set
@@ -289,14 +306,93 @@ class C3SDB:
         bounds = [q1, mp12, q2, mp23, q3]
         return digitize(self.y_df, bounds)
 
-    def train(self):
-        raise NotImplementedError
+    def train(self, train_X_df: pd.DataFrame, train_Y_df: pd.Series):
+        """
+        Train the model on the provided training data
+        
+        Parameters
+        ----------
+        train_X_df : pd.DataFrame
+            Training features
+        train_Y_df : pd.Series
+            Training labels/targets
+        """
+        raise NotImplementedError("Not implemented")
 
-    def predict(self):
-        raise NotImplementedError
+    def predict(self,
+                X_df: Optional[pd.DataFrame] = None,
+                Y_df: Optional[pd.Series] = None) -> pd.Series:
+        """
+        Make predictions on the provided test set and add predictions as a new column to the full dataset,
+        aligning by g_id when provided.
 
-    @staticmethod
-    def compute_metrics(y_true: pd.Series, y_pred: np.ndarray) -> Dict[str, float]:
+        Parameters
+        ----------
+        test_X_df : pd.DataFrame
+            Features to make predictions on. Must be provided.
+        test_Y_series : pd.Series
+            Ground truth targets for the provided features. Must be provided.
+        g_id_series : pd.Series, optional
+            Series of g_id values corresponding to rows in test_X_df, used to align predictions to self.db.
+            If not provided, will look for a 'g_id' column in test_X_df.
+
+        Returns
+        -------
+        pd.Series
+            Predictions for the test set, indexed by g_id
+        """
+        if self.model_ is None:
+            raise RuntimeError("No trained model found. Please implement/train in train(...) and set self.model_.")
+
+        if X_df is None or Y_df is None:
+            raise ValueError("predict requires both X_df and Y_df to be provided.")
+        
+        #now simply predict on the provided X_df and Y_df
+        y_pred = self.model_.predict(X_df[self.X_columns].values)
+
+        #store the prediction values to the self.testX_df based on g_id with column "prediction"
+        X_df["prediction"] = y_pred
+        return y_pred
+
+    def save_predictions_to_csv(self, dataset: str):
+        """
+        export the test set and the predictions to a csv file
+        """
+        if dataset not in ["test", "validation"]:
+            raise ValueError("dataset must be either 'test' or 'validation'.")
+        
+        if dataset == "test":
+            df = pd.merge(self.testX_df, self.testY_df, on="g_id", how="left")
+        elif dataset == "validation":
+            df = pd.merge(self.validationX_df, self.validationY_df, on="g_id", how="left")
+        
+        df.to_csv(f"{dataset}_predictions.csv", index=False)
+
+    def compute_metrics(self,
+                        y_true: pd.Series,
+                        y_pred: pd.Series,
+                        dataset: str = "test"
+                        ) -> Dict[str, float]:
+        """
+        Compute regression metrics. Use y_true/y_pred from the given dataset split.
+
+        Parameters
+        ----------
+        y_true : pd.Series
+            Ground truth.
+        y_pred : pd.Series
+            Predictions.
+        dataset : str
+            Name of dataset split (e.g., "test", "validation") used in the metric filename.
+        """
+        if y_true is None or y_pred is None:
+            raise ValueError("y_true and y_pred must be provided.")
+        
+        if len(y_true) != len(y_pred):  
+            raise ValueError("y_true and y_pred must have the same length.")    
+
+        y_true = y_true[self.y_column[0]]
+
         r2 = r2_score(y_true, y_pred)
         mae = mean_absolute_error(y_true, y_pred)
         sqe = (y_true - y_pred) ** 2
@@ -304,7 +400,7 @@ class C3SDB:
         rel = np.abs((y_true - y_pred) / y_true) * 100
         mre = float(np.mean(rel))
         mdre = float(np.median(rel))
-        return {
+        metrics = {
             "R^2": float(r2),
             "MAE": float(mae),
             "MdSE": mdse,
@@ -314,7 +410,32 @@ class C3SDB:
             "prop_within_3": float((rel < 3).mean() * 100),
             "prop_within_5": float((rel < 5).mean() * 100),
             "prop_within_10": float((rel < 10).mean() * 100),
+            "dataset": dataset
         }
+        # Save metrics dictionary to a CSV file
+        metrics_df = pd.DataFrame([metrics])
+        metrics_df.to_csv(f"{dataset}_metrics.csv", index=False)
+        return metrics
+
+    def save_weights_pickle(self, weights_path: str = "weights.pkl"):
+        """
+        Save the model weights to a pickle file
+        """
+        if self.model_ is None:
+            raise RuntimeError("No trained model to save. Train and set self.model_ before saving.")
+
+        payload = {
+            "model": self.model_,
+            "trained_on_scaled": bool(self.X_train_ss_ is not None),
+            "scaler": self.SScaler_,
+            "x_columns": self.X_columns,
+            "y_column": self.y_column,
+            "adduct_categories": getattr(self, 'OHEncoder_', None).categories_[0].tolist() if hasattr(self, 'OHEncoder_') else None,
+            "seed": self.seed,
+        }
+
+        with open(weights_path, "wb") as f:
+            pickle.dump(payload, f)
 
 if __name__ == "__main__":
     pass
